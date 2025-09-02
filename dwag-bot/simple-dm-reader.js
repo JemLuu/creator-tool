@@ -272,7 +272,7 @@ async function checkMessages() {
     console.log('\n' + '='.repeat(50));
     
     if (DEBUG_MODE) {
-        console.log(`Next check in 6.7 seconds...`);
+        console.log(`Next check in 60 seconds...`);
     } else {
         console.log('Done reading DMs!');
     }
@@ -281,19 +281,19 @@ async function checkMessages() {
 }
 
 async function startDebugMode() {
-    console.log('DEBUG MODE - Checking every 6.7 seconds (Press Ctrl+C to stop)\n');
+    console.log('DEBUG MODE - Checking every 60 seconds (Press Ctrl+C to stop)\n');
     
     // Check immediately
     await checkMessages();
     
-    // Then check every 6.7 seconds
+    // Then check every 60 seconds
     setInterval(async () => {
         try {
             await checkMessages();
         } catch (error) {
             console.error('Error checking messages:', error.message);
         }
-    }, 6700);
+    }, 60000);
 }
 
 async function main() {
