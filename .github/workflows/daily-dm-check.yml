@@ -18,10 +18,13 @@ jobs:
       with:
         node-version: '18'
     
+    - name: Change to dawg-bot directory
+      run: cd dawg-bot
+    
     - name: Cache last run file
       uses: actions/cache@v3
       with:
-        path: .last-run
+        path: dawg-bot/.last-run
         key: last-run-${{ github.run_number }}
         restore-keys: |
           last-run-
@@ -33,7 +36,9 @@ jobs:
         sleep $DELAY
     
     - name: Install dependencies
-      run: npm install
+      run: |
+        cd dawg-bot
+        npm install
     
     - name: Check Instagram DMs
       env:
@@ -41,11 +46,13 @@ jobs:
         INSTAGRAM_PASSWORD: ${{ secrets.INSTAGRAM_PASSWORD }}
         INSTAGRAM_USERID: ${{ secrets.INSTAGRAM_USERID }}
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-      run: node simple-dm-reader.js
+      run: |
+        cd dawg-bot
+        node simple-dm-reader.js
     
     - name: Save last run file
       if: always()
       uses: actions/cache/save@v3
       with:
-        path: .last-run
+        path: dawg-bot/.last-run
         key: last-run-${{ github.run_number }}
