@@ -1,18 +1,11 @@
-require('dotenv').config();
 const { IgApiClient } = require('instagram-private-api');
 const fs = require('fs');
+const { WEBHOOK_URLS, DEBUG_MODE } = require('../utils/config');
+const { parseCommand } = require('../utils/command-parser');
+const { sendToDiscord } = require('../utils/discord-sender');
 
 const ig = new IgApiClient();
 const LAST_RUN_FILE = '.last-run';
-const DEBUG_MODE = process.argv.includes('--debug');
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-
-// Webhook URLs for different content types
-const WEBHOOK_URLS = {
-    meme: process.env.DISCORD_WEBHOOK_MEME || process.env.DISCORD_WEBHOOK_URL,
-    skit: process.env.DISCORD_WEBHOOK_SKIT || process.env.DISCORD_WEBHOOK_URL,
-    audio: process.env.DISCORD_WEBHOOK_AUDIO || process.env.DISCORD_WEBHOOK_URL
-};
 
 const messageHandlers = {
     clip: (msg) => {
@@ -58,60 +51,7 @@ function saveLastRunTime() {
     fs.writeFileSync(LAST_RUN_FILE, Date.now().toString());
 }
 
-async function sendToDiscord(messages) {
-    if (messages.length === 0) {
-        console.log('No messages to send to Discord');
-        return;
-    }
-
-    for (const msg of messages) {
-        const webhookUrl = msg.webhookUrl || DISCORD_WEBHOOK_URL;
-        
-        if (!webhookUrl) {
-            console.log(`No Discord webhook configured for message from ${msg.sender}`);
-            continue;
-        }
-        
-        let payload;
-        
-        // Handle different message types differently
-        if (msg.content.includes('/reel/')) {
-            // For reels: send just the link (no embed)
-            payload = {
-                content: `**${msg.sender}**: ${msg.content}`
-            };
-        } else if (msg.content.includes('/p/')) {
-            // For posts: send link inline for embedding + context
-            payload = {
-                content: `**${msg.sender}**: ${msg.content}`
-            };
-        } else {
-            // For text: send just the text
-            payload = {
-                content: `**${msg.sender}:** ${msg.content}`
-            };
-        }
-
-        try {
-            const response = await fetch(webhookUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`Failed to send to Discord: ${response.status} - ${errorText}`);
-                console.error('Payload:', JSON.stringify(payload, null, 2));
-            }
-        } catch (error) {
-            console.error('Error sending to Discord:', error);
-        }
-
-        // Rate limit
-        await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-}
+// sendToDiscord is now imported from shared module
 
 /**
  * Collects messages from all conversations and organizes them by thread
@@ -153,29 +93,7 @@ async function collectMessagesByConversation() {
     return messagesByConversation;
 }
 
-/**
- * Parse dwag commands from message text
- * @param {string} text - Message text to parse
- * @returns {Object|null} Parsed command or null if not a dwag command
- */
-function parseCommand(text) {
-    if (!text || typeof text !== 'string') return null;
-    
-    const lowerText = text.toLowerCase().trim();
-    if (!lowerText.startsWith('dwag')) return null;
-    
-    // Parse "dwag add [type] [idea text]"
-    const addMatch = text.match(/^dwag\s+add\s+(?:(meme|skit|audio)\s+)?(.+)$/i);
-    if (addMatch) {
-        return {
-            command: 'add',
-            type: addMatch[1] || 'meme', // Default to meme if no type specified
-            ideaText: addMatch[2].trim()
-        };
-    }
-    
-    return null;
-}
+// parseCommand is now imported from shared module
 
 /**
  * Find the most recent media message before the given index
@@ -262,7 +180,7 @@ async function checkMessages() {
         const discordMessages = processMessagesForDiscord(messagesByConversation);
         if (discordMessages.length > 0) {
             console.log(`Sending ${discordMessages.length} message(s) to Discord...`);
-            await sendToDiscord(discordMessages);
+            await sendToDiscord(discordMessages, WEBHOOK_URLS);
             console.log('Messages sent to Discord!');
         } else {
             console.log('No dwag commands found to send to Discord');

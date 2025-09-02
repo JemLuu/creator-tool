@@ -2,10 +2,13 @@
   "name": "dawg-bot",
   "version": "1.0.0",
   "description": "Simple Instagram DM reader",
-  "main": "simple-dm-reader.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node simple-dm-reader.js",
-    "debug": "node simple-dm-reader.js --debug"
+    "start": "node index.js",
+    "dev": "node index.js --debug",
+    "debug": "node index.js --debug",
+    "instagram": "node dwag-insta/simple-dm-reader.js",
+    "instagram:dev": "node dwag-insta/simple-dm-reader.js --debug"
   },
   "keywords": [
     "instagram",
