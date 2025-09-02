@@ -11,13 +11,15 @@ const messageHandlers = {
     clip: (msg) => {
         const code = msg.clip?.clip?.code;
         if (!code) return '[Instagram Reel - no code]';
-        return `https://www.instagram.com/reel/${code}/`;
+        // Use "kk" trick for better Discord embeds
+        return `https://www.kkinstagram.com/reel/${code}/`;
     },
     
     media_share: (msg) => {
         const code = msg.media_share?.code;
         if (!code) return '[Shared Post - no code]';
-        return `https://www.instagram.com/p/${code}/`;
+        // Use "kk" trick for better Discord embeds
+        return `https://www.kkinstagram.com/p/${code}/`;
     },
     
     media: () => '[Photo/Video]',
@@ -56,37 +58,37 @@ async function sendToDiscord(messages) {
     }
 
     for (const msg of messages) {
-        const embed = {
-            embeds: [{
-                color: 0xE1306C,
-                author: {
-                    name: msg.sender,
-                    icon_url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Instagram_logo_2016.svg/132px-Instagram_logo_2016.svg.png'
-                },
-                fields: [
-                    {
-                        name: 'Content',
-                        value: msg.content.substring(0, 1024)
-                    }
-                ],
-                timestamp: msg.timestamp,
-                footer: {
-                    text: 'Instagram DM'
-                }
-            }]
-        };
+        let payload;
+        
+        // Handle different message types differently
+        if (msg.content.includes('/reel/')) {
+            // For reels: send just the link (no embed)
+            payload = {
+                content: `**${msg.sender}**: ${msg.content}`
+            };
+        } else if (msg.content.includes('/p/')) {
+            // For posts: send link inline for embedding + context
+            payload = {
+                content: `**${msg.sender}**: ${msg.content}`
+            };
+        } else {
+            // For text: send just the text
+            payload = {
+                content: `**${msg.sender}:** ${msg.content}`
+            };
+        }
 
         try {
             const response = await fetch(DISCORD_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(embed)
+                body: JSON.stringify(payload)
             });
 
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error(`Failed to send to Discord: ${response.status} - ${errorText}`);
-                console.error('Payload:', JSON.stringify(embed, null, 2));
+                console.error('Payload:', JSON.stringify(payload, null, 2));
             }
         } catch (error) {
             console.error('Error sending to Discord:', error);
@@ -164,7 +166,7 @@ async function checkMessages() {
     console.log('\n' + '='.repeat(50));
     
     if (DEBUG_MODE) {
-        console.log(`Next check in 1 second...`);
+        console.log(`Next check in 6.7 seconds...`);
     } else {
         console.log('Done reading DMs!');
     }
@@ -173,19 +175,19 @@ async function checkMessages() {
 }
 
 async function startDebugMode() {
-    console.log('DEBUG MODE - Checking every second (Press Ctrl+C to stop)\n');
+    console.log('DEBUG MODE - Checking every 6.7 seconds (Press Ctrl+C to stop)\n');
     
     // Check immediately
     await checkMessages();
     
-    // Then check every second
+    // Then check every 6.7 seconds
     setInterval(async () => {
         try {
             await checkMessages();
         } catch (error) {
             console.error('Error checking messages:', error.message);
         }
-    }, 1000);
+    }, 6700);
 }
 
 async function main() {
