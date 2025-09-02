@@ -1,9 +1,0 @@
-{
-  "name": "d-dawg",
-  "version": "1.0.0",
-  "description": "Discord webhook for Instagram DMs",
-  "main": "send-to-discord.js",
-  "dependencies": {
-    "dotenv": "^16.4.5"
-  }
-}
