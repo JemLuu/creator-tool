@@ -4,7 +4,8 @@
   "description": "Simple Instagram DM reader",
   "main": "simple-dm-reader.js",
   "scripts": {
-    "start": "node simple-dm-reader.js"
+    "start": "node simple-dm-reader.js",
+    "debug": "node simple-dm-reader.js --debug"
   },
   "keywords": [
     "instagram",
