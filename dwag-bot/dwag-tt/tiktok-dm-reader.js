@@ -58,13 +58,18 @@ function processMessagesForDiscord(messagesByConversation) {
                 const media = findPreviousMedia(messages, index);
                 
                 if (media) {
-                    // Create the Discord message with media and idea text
-                    discordMessages.push({
-                        sender: threadTitle,
-                        content: `${media.content}\n"${command.ideaText}"`,
-                        timestamp: msg.timestamp,
-                        webhookUrl: WEBHOOK_URLS[command.type]
-                    });
+                    // Only send if we have a real video URL, not a placeholder
+                    if (!media.content.includes('/placeholder')) {
+                        // Create the Discord message with media and idea text
+                        discordMessages.push({
+                            sender: threadTitle,
+                            content: `${media.content}\n"${command.ideaText}"`,
+                            timestamp: msg.timestamp,
+                            webhookUrl: WEBHOOK_URLS[command.type]
+                        });
+                    } else {
+                        console.log(`Skipping placeholder video for command from ${threadTitle}: "${msg.content}"`);
+                    }
                 } else {
                     // No media found to pair with
                     console.log(`Warning: No media found to pair with command from ${threadTitle}: "${msg.content}"`);

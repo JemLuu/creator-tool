@@ -116,11 +116,128 @@ class FinalScraper {
             
             console.log('[DEBUG] Starting message extraction...');
             
-            // First, let's see if there are ANY TikTok URLs anywhere on the page
-            const pageHTML = document.body.innerHTML;
-            const allTikTokUrls = pageHTML.match(/(https?:\/\/[^\s"']+tiktok\.com[^\s"']*)/g) || [];
-            console.log(`[DEBUG] Found ${allTikTokUrls.length} TikTok URLs on entire page:`);
-            allTikTokUrls.forEach(url => console.log(`[DEBUG] Page URL: ${url}`));
+            // COMPREHENSIVE ELEMENT LOGGING
+            console.log('[DEBUG] === COMPREHENSIVE CHAT ELEMENT ANALYSIS ===');
+            
+            // Find all possible chat containers
+            const possibleContainers = [
+                '[class*="ChatMain"]',
+                '[class*="ChatBox"]',
+                '[class*="MessageList"]',
+                '[class*="ChatContent"]',
+                '[class*="MessageContainer"]',
+                '[data-testid*="chat"]',
+                '[data-testid*="message"]'
+            ];
+            
+            let chatContainer = null;
+            for (const selector of possibleContainers) {
+                const container = document.querySelector(selector);
+                if (container) {
+                    console.log(`[DEBUG] Found container with selector: ${selector}`);
+                    chatContainer = container;
+                    break;
+                }
+            }
+            
+            // Log all elements with class names containing chat/message
+            const allChatRelated = document.querySelectorAll('[class*="chat" i], [class*="message" i], [class*="msg" i]');
+            console.log(`[DEBUG] Found ${allChatRelated.length} elements with chat/message/msg in class names`);
+            
+            // Find all possible message item selectors
+            const messageSelectors = [
+                '[class*="ChatItemWrapper"]',
+                '[class*="MessageItem"]',
+                '[class*="ChatMessage"]',
+                '[class*="MessageWrapper"]',
+                '[class*="ChatItem"]:not([class*="Wrapper"])',
+                '[data-testid*="message"]',
+                '[role="listitem"]'
+            ];
+            
+            let allChatItems = [];
+            for (const selector of messageSelectors) {
+                const items = document.querySelectorAll(selector);
+                if (items.length > 0) {
+                    console.log(`[DEBUG] Found ${items.length} items with selector: ${selector}`);
+                    allChatItems = items;
+                    break;
+                }
+            }
+            
+            // If no specific chat items found, look for generic divs in the chat container
+            if (allChatItems.length === 0 && chatContainer) {
+                const divs = chatContainer.querySelectorAll('div');
+                console.log(`[DEBUG] Fallback: checking ${divs.length} divs in chat container`);
+                
+                // Filter divs that look like messages
+                allChatItems = Array.from(divs).filter(div => {
+                    const text = div.textContent || '';
+                    const hasTimestamp = /\d{1,2}:\d{2}/.test(text);
+                    const hasMedia = div.querySelector('video, img[src*="tiktok"], img[src*="musically"]');
+                    const hasCommand = text.includes('dwag');
+                    const reasonableLength = text.length > 0 && text.length < 500;
+                    
+                    return (hasTimestamp || hasMedia || hasCommand) && reasonableLength;
+                });
+                
+                console.log(`[DEBUG] Found ${allChatItems.length} potential message divs after filtering`);
+            }
+            
+            console.log(`[DEBUG] === PROCESSING ${allChatItems.length} CHAT ITEMS ===`);
+            
+            // Log detailed info about each chat item for debugging
+            allChatItems.forEach((item, index) => {
+                const text = item.textContent?.trim() || '';
+                const classes = item.className || '';
+                const hasVideo = item.querySelector('video') !== null;
+                const imgCount = item.querySelectorAll('img').length;
+                const hasTikTokImg = item.querySelector('img[src*="tiktok"]') !== null;
+                const timeMatch = text.match(/(\d{1,2}:\d{2})/);
+                
+                // Look for time in different places
+                let timeFound = null;
+                
+                // Check for time element
+                const timeElem = item.querySelector('[class*="time" i], [class*="Time" i], time, [datetime]');
+                if (timeElem) {
+                    timeFound = timeElem.textContent || timeElem.getAttribute('datetime') || timeElem.getAttribute('title');
+                }
+                
+                // Check for time in aria-label
+                const elemWithAriaLabel = item.querySelector('[aria-label]');
+                if (!timeFound && elemWithAriaLabel) {
+                    const ariaLabel = elemWithAriaLabel.getAttribute('aria-label');
+                    if (ariaLabel && /\d{1,2}:\d{2}/.test(ariaLabel)) {
+                        timeFound = ariaLabel.match(/\d{1,2}:\d{2}/)[0];
+                    }
+                }
+                
+                // Check parent elements for time
+                if (!timeFound) {
+                    let parent = item.parentElement;
+                    let level = 0;
+                    while (parent && level < 2 && !timeFound) {
+                        const parentTimeElem = parent.querySelector('[class*="time" i], [class*="Time" i]');
+                        if (parentTimeElem) {
+                            timeFound = parentTimeElem.textContent;
+                        }
+                        parent = parent.parentElement;
+                        level++;
+                    }
+                }
+                
+                console.log(`[DEBUG] ITEM ${index}:`);
+                console.log(`[DEBUG]   - Classes: ${classes.substring(0, 100)}`);
+                console.log(`[DEBUG]   - Text: "${text.substring(0, 100)}..."`);
+                console.log(`[DEBUG]   - Has video: ${hasVideo}`);
+                console.log(`[DEBUG]   - Image count: ${imgCount}`);
+                console.log(`[DEBUG]   - Has TikTok img: ${hasTikTokImg}`);
+                console.log(`[DEBUG]   - Time in text: ${timeMatch ? timeMatch[1] : 'none'}`);
+                console.log(`[DEBUG]   - Time found elsewhere: ${timeFound || 'none'}`);
+                console.log(`[DEBUG]   - Contains 'dwag': ${text.includes('dwag')}`);
+                console.log(`[DEBUG]   ---`);
+            });
             
             // Helper function to extract video URL from an element
             function extractVideoUrlFromElement(element) {
@@ -216,67 +333,107 @@ class FinalScraper {
                 return 'https://www.kktiktok.com/video/placeholder';
             }
             
-            // IMPORTANT: Only look in the chat area, not the sidebar
-            // The chat area is usually on the right side of the screen
-            // Look for the main chat container
-            let chatContainer = document.querySelector('[class*="ChatMain"]') || 
-                               document.querySelector('[class*="ChatBox"]') ||
-                               document.querySelector('[class*="MessageList"]');
+            // Process all found chat items
+            console.log('[DEBUG] === EXTRACTING MESSAGES FROM ITEMS ===');
             
-            if (!chatContainer) {
-                // Fallback: find the container that has chat messages but NOT the conversation list
-                const allContainers = document.querySelectorAll('div');
-                for (const container of allContainers) {
-                    const text = container.textContent || '';
-                    // Check if this looks like a chat container (has messages but not the sidebar text)
-                    if (text.includes('dwag add') && 
-                        !text.includes('Messages') &&
-                        container.querySelector('[class*="ChatItem"]')) {
-                        chatContainer = container;
-                        console.log('[DEBUG] Found chat container via fallback');
-                        break;
-                    }
-                }
-            }
-            
-            if (chatContainer) {
-                console.log('[DEBUG] Found chat container, looking for messages within it');
-                
-                // Find all chat items ONLY within the chat container
-                const chatItems = chatContainer.querySelectorAll('[class*="ChatItemWrapper"]');
-                console.log(`[DEBUG] Found ${chatItems.length} chat items in container`);
-                
-                chatItems.forEach((item, index) => {
+            if (allChatItems.length > 0) {
+                allChatItems.forEach((item, index) => {
                     const text = item.textContent?.trim() || '';
                     
-                    // Skip empty or duplicate messages
-                    if (!text || seen.has(text)) {
+                    // Skip empty messages
+                    if (!text) {
                         return;
                     }
-                    seen.add(text);
                     
-                    console.log(`[DEBUG] Processing message ${index}: "${text}"`);
+                    // Create a unique key for deduplication that includes index for same-text messages
+                    const uniqueKey = `${text}_${index}`;
+                    if (seen.has(uniqueKey)) {
+                        return;
+                    }
+                    seen.add(uniqueKey);
+                    
+                    console.log(`[DEBUG] Processing message ${index}: "${text.substring(0, 100)}"`);
                     
                     // Try to extract timestamp from the message
                     let timestamp = null;
+                    let timeStr = null;
                     
-                    // Look for time patterns in the text (HH:MM format)
-                    const timeMatches = text.match(/(\d{1,2}:\d{2})/g);
-                    if (timeMatches && timeMatches.length > 0) {
-                        // Use the last time match (most likely to be the message time)
-                        const timeStr = timeMatches[timeMatches.length - 1];
-                        const [hours, minutes] = timeStr.split(':').map(Number);
-                        
-                        // Create a timestamp for today with this time
-                        const today = new Date();
-                        today.setHours(hours, minutes, 0, 0);
-                        timestamp = today.toISOString();
-                        
-                        console.log(`[DEBUG] Extracted timestamp: ${timeStr} -> ${timestamp}`);
+                    // Method 1: Look for time element within the item
+                    const timeElem = item.querySelector('[class*="time" i], [class*="Time" i], time, [datetime]');
+                    if (timeElem) {
+                        timeStr = timeElem.textContent || timeElem.getAttribute('datetime') || timeElem.getAttribute('title');
                     }
                     
+                    // Method 2: Check aria-labels
+                    if (!timeStr) {
+                        const elemWithAriaLabel = item.querySelector('[aria-label]');
+                        if (elemWithAriaLabel) {
+                            const ariaLabel = elemWithAriaLabel.getAttribute('aria-label');
+                            const timeMatch = ariaLabel?.match(/(\d{1,2}:\d{2})/);
+                            if (timeMatch) {
+                                timeStr = timeMatch[1];
+                            }
+                        }
+                    }
+                    
+                    // Method 3: Look in parent elements
+                    if (!timeStr) {
+                        let parent = item.parentElement;
+                        let level = 0;
+                        while (parent && level < 3 && !timeStr) {
+                            const parentTimeElem = parent.querySelector('[class*="time" i], [class*="Time" i]');
+                            if (parentTimeElem && parentTimeElem !== item) {
+                                timeStr = parentTimeElem.textContent;
+                                break;
+                            }
+                            parent = parent.parentElement;
+                            level++;
+                        }
+                    }
+                    
+                    // Method 4: Fallback to searching text for time patterns
+                    if (!timeStr) {
+                        const timeMatches = text.match(/(\d{1,2}:\d{2})/g);
+                        if (timeMatches && timeMatches.length > 0) {
+                            // Use the last time match (most likely to be the message time)
+                            timeStr = timeMatches[timeMatches.length - 1];
+                        }
+                    }
+                    
+                    // Convert time string to timestamp
+                    if (timeStr) {
+                        const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})/);
+                        if (timeMatch) {
+                            const [_, hours, minutes] = timeMatch;
+                            const today = new Date();
+                            today.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                            timestamp = today.toISOString();
+                            console.log(`[DEBUG] Extracted timestamp: ${timeStr} -> ${timestamp}`);
+                        }
+                    }
+                    
+                    // Check what elements are in this chat item
+                    const hasVideo = item.querySelector('video') !== null;
+                    const imageCount = item.querySelectorAll('img').length;
+                    const hasTikTokImg = item.querySelector('img[src*="tiktok"]') !== null;
+                    const hasMusicallyImg = item.querySelector('img[src*="musically"]') !== null;
+                    
+                    // Analyze images more carefully
+                    const images = item.querySelectorAll('img');
+                    let hasLargeImage = false;
+                    let hasMultipleImages = imageCount >= 2;
+                    
+                    images.forEach(img => {
+                        if ((img.width > 50 || img.height > 50) && !img.src?.includes('-avt-')) {
+                            hasLargeImage = true;
+                        }
+                    });
+                    
                     // Parse different message types
-                    if (text.includes('dwag add')) {
+                    if (text.match(/Message request accepted|You can start chatting/)) {
+                        // System message, skip
+                        console.log('[DEBUG] Skipping system message');
+                    } else if (text.includes('dwag add')) {
                         // Extract just the dwag command, remove any usernames or timestamps
                         let command = text;
                         
@@ -286,70 +443,46 @@ class FinalScraper {
                         // Find the dwag add command within the text
                         const dwagMatch = command.match(/dwag\s+add\s+\w+.*$/i);
                         if (dwagMatch) {
-                            results.push({ type: 'command', content: dwagMatch[0], timestamp });
+                            console.log(`[DEBUG] Found command: ${dwagMatch[0]}`);
+                            results.push({ 
+                                type: 'command', 
+                                content: dwagMatch[0], 
+                                timestamp,
+                                originalIndex: index 
+                            });
                         }
-                    } else if (text.match(/^Message request accepted|You can start chatting/)) {
-                        // System message, skip
-                        console.log('[DEBUG] Skipping system message');
-                    } else if (item.querySelector('video') || item.querySelector('img[src*="tiktok"]') || 
-                              item.querySelector('img[src*="musically"]')) {
+                    } else if (hasVideo || hasMusicallyImg || 
+                              (hasMultipleImages && !text.includes('dwag'))) {
                         // Contains media - this is likely an embedded video
-                        console.log(`[DEBUG] Found media element in chat item`);
+                        // IMPORTANT: Only items with 2+ images are video shares (avatar + thumbnail)
+                        // Single image items are just user messages with their avatar
+                        console.log(`[DEBUG] Found media element in chat item (treating as video) - images: ${imageCount}, hasMultiple: ${hasMultipleImages}`);
                         results.push({ 
                             type: 'video', 
                             content: 'https://www.kktiktok.com/video/placeholder',
                             needsUrlExtraction: true,
                             chatItemElement: item,
-                            timestamp
+                            timestamp,
+                            originalIndex: index,
+                            originalText: text.substring(0, 50),
+                            imageCount: imageCount
                         });
-                    } else if (text.length > 0 && text.length < 100 && 
+                    } else if (text.length > 0 && text.length < 200 && 
                               !text.includes('Messages') && !text.includes('/2025')) {
                         // Generic text message that's not too long and not a UI element
-                        results.push({ type: 'text', content: text, timestamp });
+                        console.log(`[DEBUG] Treating as text message: "${text.substring(0, 50)}"`);
+                        results.push({ 
+                            type: 'text', 
+                            content: text, 
+                            timestamp,
+                            originalIndex: index 
+                        });
+                    } else {
+                        console.log(`[DEBUG] Skipping item: "${text.substring(0, 50)}" (too long or system UI element)`);
                     }
                 });
             } else {
-                console.log('[DEBUG] WARNING: Could not find chat container, results may be incorrect');
-                
-                // Emergency fallback - just look for ChatItemWrapper elements
-                const allChatItems = document.querySelectorAll('[class*="ChatItemWrapper"]');
-                console.log(`[DEBUG] Emergency fallback: found ${allChatItems.length} chat items globally`);
-                
-                allChatItems.forEach((item, index) => {
-                    const text = item.textContent?.trim() || '';
-                    
-                    // Only process items that look like actual messages (not UI elements)
-                    if (text && !seen.has(text) && 
-                        !text.includes('Messages') && 
-                        !text.includes('/2025') &&
-                        text.length < 200) {
-                        
-                        seen.add(text);
-                        
-                        // Try to extract timestamp from the message
-                        let timestamp = null;
-                        const timeMatches = text.match(/(\d{1,2}:\d{2})/g);
-                        if (timeMatches && timeMatches.length > 0) {
-                            const timeStr = timeMatches[timeMatches.length - 1];
-                            const [hours, minutes] = timeStr.split(':').map(Number);
-                            const today = new Date();
-                            today.setHours(hours, minutes, 0, 0);
-                            timestamp = today.toISOString();
-                        }
-                        
-                        if (text.includes('dwag add')) {
-                            // Clean up the command
-                            let command = text.replace(/\d{1,2}:\d{2}/g, '').trim();
-                            const dwagMatch = command.match(/dwag\s+add\s+\w+.*$/i);
-                            if (dwagMatch) {
-                                results.push({ type: 'command', content: dwagMatch[0], timestamp });
-                            }
-                        } else if (text.length > 0 && text.length < 100) {
-                            // Generic text message
-                            results.push({ type: 'text', content: text, timestamp });
-                        }
-                    }
-                });
+                console.log('[DEBUG] WARNING: No chat items found with standard selectors');
             }
             
             console.log(`[DEBUG] Extracted ${results.length} messages`);
@@ -361,16 +494,61 @@ class FinalScraper {
 
     async extractVideoUrls(messages) {
         console.log('Extracting actual video URLs by clicking on videos...');
+        console.log(`\n[DEBUG] Messages to process for video URLs:`);
+        messages.forEach((msg, i) => {
+            if (msg.needsUrlExtraction) {
+                console.log(`  Message ${i}: type=${msg.type}, text="${msg.originalText}", imageCount=${msg.imageCount}, originalIndex=${msg.originalIndex}`);
+            }
+        });
         
-        // First, let's get all chat items and their associated video elements
+        // Get comprehensive info about all chat items with videos
         const chatItemsWithVideos = await this.page.evaluate(() => {
-            const chatContainer = document.querySelector('[class*="ChatMain"]') || 
-                                 document.querySelector('[class*="ChatBox"]') ||
-                                 document.querySelector('[class*="MessageList"]');
+            // Find all possible chat containers and selectors
+            const possibleContainers = [
+                '[class*="ChatMain"]',
+                '[class*="ChatBox"]',
+                '[class*="MessageList"]',
+                '[class*="ChatContent"]',
+                '[class*="MessageContainer"]'
+            ];
+            
+            let chatContainer = null;
+            for (const selector of possibleContainers) {
+                const container = document.querySelector(selector);
+                if (container) {
+                    chatContainer = container;
+                    break;
+                }
+            }
+            
+            if (!chatContainer) {
+                // Try to find container with chat items
+                const allContainers = document.querySelectorAll('div');
+                for (const container of allContainers) {
+                    if (container.querySelector('[class*="ChatItem"]')) {
+                        chatContainer = container;
+                        break;
+                    }
+                }
+            }
             
             if (!chatContainer) return [];
             
-            const chatItems = chatContainer.querySelectorAll('[class*="ChatItemWrapper"]');
+            // Find all chat items using multiple possible selectors
+            const messageSelectors = [
+                '[class*="ChatItemWrapper"]',
+                '[class*="MessageItem"]',
+                '[class*="ChatMessage"]',
+                '[class*="MessageWrapper"]',
+                '[class*="ChatItem"]:not([class*="Wrapper"])'
+            ];
+            
+            let chatItems = [];
+            for (const selector of messageSelectors) {
+                chatItems = chatContainer.querySelectorAll(selector);
+                if (chatItems.length > 0) break;
+            }
+            
             const videoInfo = [];
             
             chatItems.forEach((item, index) => {
@@ -381,21 +559,27 @@ class FinalScraper {
                 
                 // Check if this chat item has video content
                 if (videos.length > 0 || clickableVideos.length > 0 || 
-                    (images.length > 0 && text.length < 50 && /^[a-zA-Z\s]+$/.test(text))) {
+                    (images.length > 0 && text.length < 100)) {
                     
                     videoInfo.push({
                         index,
-                        text,
+                        text: text.substring(0, 100),
                         hasVideo: videos.length > 0,
                         hasClickableVideo: clickableVideos.length > 0,
-                        hasImages: images.length > 0
+                        hasImages: images.length > 0,
+                        imageCount: images.length
                     });
                 }
             });
             
             console.log(`[DEBUG] Found ${videoInfo.length} chat items with potential videos`);
+            videoInfo.forEach((info, idx) => {
+                console.log(`[DEBUG] Video item ${idx}: text="${info.text}", images=${info.imageCount}`);
+            });
             return videoInfo;
         });
+        
+        console.log(`\n[DEBUG] Chat items with videos found: ${chatItemsWithVideos.length}`);
         
         let videoMessageIndex = 0;
         
@@ -403,34 +587,75 @@ class FinalScraper {
             const msg = messages[i];
             
             if (msg.needsUrlExtraction && msg.type === 'video') {
-                console.log(`Attempting to extract URL for video message ${i + 1} (video #${videoMessageIndex + 1})...`);
+                console.log(`\n[DEBUG] === Processing message ${i} ===`);
+                console.log(`  - Original text: "${msg.originalText}"`);
+                console.log(`  - Image count: ${msg.imageCount}`);
+                console.log(`  - Original DOM index: ${msg.originalIndex}`);
+                console.log(`  - Video message index: ${videoMessageIndex}`);
+                console.log(`  - Attempting to extract URL for video message ${i + 1} (video #${videoMessageIndex + 1})...`);
                 
                 try {
-                    // Click on the specific video for this message
-                    const clickResult = await this.page.evaluate((videoIndex) => {
-                        const chatContainer = document.querySelector('[class*="ChatMain"]') || 
-                                             document.querySelector('[class*="ChatBox"]') ||
-                                             document.querySelector('[class*="MessageList"]');
+                    // Click on the specific video for this message - pass as single object
+                    const clickResult = await this.page.evaluate(({videoIndex, originalMsgIndex}) => {
+                        // Find all possible chat containers
+                        const possibleContainers = [
+                            '[class*="ChatMain"]',
+                            '[class*="ChatBox"]',
+                            '[class*="MessageList"]',
+                            '[class*="ChatContent"]',
+                            '[class*="MessageContainer"]'
+                        ];
+                        
+                        let chatContainer = null;
+                        for (const selector of possibleContainers) {
+                            const container = document.querySelector(selector);
+                            if (container) {
+                                chatContainer = container;
+                                break;
+                            }
+                        }
                         
                         if (!chatContainer) return null;
                         
-                        const chatItems = chatContainer.querySelectorAll('[class*="ChatItemWrapper"]');
+                        // Find all chat items using multiple selectors
+                        const messageSelectors = [
+                            '[class*="ChatItemWrapper"]',
+                            '[class*="MessageItem"]',
+                            '[class*="ChatMessage"]',
+                            '[class*="MessageWrapper"]',
+                            '[class*="ChatItem"]:not([class*="Wrapper"])'
+                        ];
+                        
+                        let chatItems = [];
+                        for (const selector of messageSelectors) {
+                            chatItems = chatContainer.querySelectorAll(selector);
+                            if (chatItems.length > 0) break;
+                        }
+                        
                         const videoItems = [];
                         
                         // Collect all chat items that contain videos
-                        chatItems.forEach((item) => {
+                        // IMPORTANT: Only items with 2+ images are actual video shares
+                        // Items with 1 image are typically user messages with just avatar
+                        chatItems.forEach((item, index) => {
                             const text = item.textContent?.trim() || '';
                             const videos = item.querySelectorAll('video');
                             const clickableVideos = item.querySelectorAll('[class*="video"], [class*="Video"]');
                             const images = item.querySelectorAll('img');
                             
-                            if (videos.length > 0 || clickableVideos.length > 0 || 
-                                (images.length > 0 && text.length < 50 && /^[a-zA-Z\s]+$/.test(text))) {
+                            console.log(`[DEBUG] Evaluating item ${index}: text="${text.substring(0, 30)}...", images=${images.length}`);
+                            
+                            // Only consider items with 2+ images as videos (avatar + thumbnail)
+                            // OR items with actual video elements
+                            if (videos.length > 0 || clickableVideos.length > 0 || images.length >= 2) {
+                                console.log(`[DEBUG] Adding item ${index} to videoItems (has ${images.length} images)`);
                                 videoItems.push(item);
+                            } else {
+                                console.log(`[DEBUG] Skipping item ${index} (only ${images.length} image, likely just avatar)`);
                             }
                         });
                         
-                        console.log(`[DEBUG] Found ${videoItems.length} video items, trying to click item ${videoIndex}`);
+                        console.log(`[DEBUG] Found ${videoItems.length} video items, trying to click item ${videoIndex} (original msg index: ${originalMsgIndex})`);
                         
                         if (videoIndex < videoItems.length) {
                             const targetItem = videoItems[videoIndex];
@@ -460,30 +685,90 @@ class FinalScraper {
                                 }
                             }
                             
-                            // Try clicking images if it's a username-only message
+                            // Try clicking images that are NOT profile pictures
                             const images = targetItem.querySelectorAll('img');
                             if (images.length > 0) {
-                                for (const img of images) {
-                                    if (img.offsetParent !== null) {
-                                        console.log(`[DEBUG] Clicking image in item ${videoIndex}`);
-                                        img.click();
-                                        return 'clicked_image';
+                                console.log(`[DEBUG] Checking ${images.length} images in item ${videoIndex}`);
+                                console.log(`[DEBUG] Item text content: "${targetItem.textContent?.substring(0, 50)}..."`);
+                                
+                                // If we have exactly 2 images, this is likely a video share
+                                if (images.length === 2) {
+                                    console.log(`[DEBUG] Item has 2 images - likely a video share`);
+                                    
+                                    // Try to find and click the larger image (thumbnail)
+                                    for (let i = 0; i < images.length; i++) {
+                                        const img = images[i];
+                                        const width = img.width || img.naturalWidth || 0;
+                                        const height = img.height || img.naturalHeight || 0;
+                                        const src = img.src || '';
+                                        
+                                        console.log(`[DEBUG] Image ${i}: size=${width}x${height}, src="${src.substring(0, 50)}..."`);
+                                        
+                                        // The second image or larger image is usually the thumbnail
+                                        if ((i === 1 || width > 40) && img.offsetParent !== null) {
+                                            console.log(`[DEBUG] Clicking image ${i} (likely thumbnail)`);
+                                            
+                                            // Try clicking the image itself
+                                            img.click();
+                                            
+                                            // Also try clicking parent elements
+                                            let parent = img.parentElement;
+                                            if (parent) {
+                                                console.log(`[DEBUG] Also clicking parent element`);
+                                                parent.click();
+                                            }
+                                            
+                                            return 'clicked_image';
+                                        }
+                                    }
+                                } else if (images.length === 1) {
+                                    console.log(`[DEBUG] Item has only 1 image - likely just an avatar, not a video`);
+                                } else {
+                                    console.log(`[DEBUG] Item has ${images.length} images - unusual case`);
+                                    
+                                    // Sort images by size (larger images are more likely to be video thumbnails)
+                                    const imageData = Array.from(images).map((img, i) => ({
+                                        img: img,
+                                        index: i,
+                                        width: img.width || img.naturalWidth || 0,
+                                        height: img.height || img.naturalHeight || 0,
+                                        isInProfileLink: img.closest('a[href*="@"]') !== null,
+                                        isAvatarImage: img.src?.includes('-avt-') || img.src?.includes('avatar') || img.src?.includes('profile'),
+                                        src: img.src
+                                    })).sort((a, b) => (b.width * b.height) - (a.width * a.height));
+                                    
+                                    for (const imgData of imageData) {
+                                        const {img, index, isInProfileLink, isAvatarImage, width, height} = imgData;
+                                        
+                                        console.log(`[DEBUG] Image ${index}: size=${width}x${height}, profileLink=${isInProfileLink}, avatar=${isAvatarImage}`);
+                                        
+                                        // Skip small images (likely avatars)
+                                        if (width < 40 && height < 40) {
+                                            console.log(`[DEBUG] Skipping small image ${index} (likely avatar)`);
+                                            continue;
+                                        }
+                                        
+                                        // Try clicking if it's not in a profile link and not an avatar
+                                        if (!isInProfileLink && !isAvatarImage && img.offsetParent !== null) {
+                                            console.log(`[DEBUG] Clicking large image ${index} (likely video thumbnail)`);
+                                            img.click();
+                                            return 'clicked_image';
+                                        }
                                     }
                                 }
                             }
                             
-                            // Last resort: click the entire chat item
-                            console.log(`[DEBUG] Clicking entire chat item ${videoIndex} as fallback`);
-                            targetItem.click();
-                            return 'clicked_item';
+                            // NO fallback to clicking entire items - better to keep placeholder than open profile tabs
+                            console.log(`[DEBUG] Could not find safe clickable element in item ${videoIndex}, keeping placeholder`);
+                            return 'no_safe_element';
                         } else {
                             console.log(`[DEBUG] Video index ${videoIndex} is out of range (only ${videoItems.length} items)`);
                         }
                         
                         return null;
-                    }, videoMessageIndex);
+                    }, {videoIndex: videoMessageIndex, originalMsgIndex: msg.originalIndex || videoMessageIndex});
                     
-                    if (clickResult) {
+                    if (clickResult && clickResult !== 'no_safe_element') {
                         // Wait for potential navigation
                         await this.page.waitForTimeout(2000);
                         
@@ -491,7 +776,7 @@ class FinalScraper {
                         const currentUrl = this.page.url();
                         console.log(`Current URL after clicking: ${currentUrl}`);
                         
-                        if (currentUrl.includes('tiktok.com') && (currentUrl.includes('/@') || currentUrl.includes('/video/'))) {
+                        if (currentUrl.includes('tiktok.com') && currentUrl.includes('/video/')) {
                             // We successfully navigated to a TikTok video page!
                             const realUrl = currentUrl.replace('www.tiktok.com', 'www.kktiktok.com');
                             msg.content = realUrl;
@@ -500,9 +785,16 @@ class FinalScraper {
                             // Navigate back to the chat
                             await this.page.goBack();
                             await this.page.waitForTimeout(2000);
+                        } else if (currentUrl.includes('tiktok.com') && currentUrl.includes('/@')) {
+                            // We accidentally navigated to a profile page - go back immediately
+                            console.log(`  -> Accidentally opened profile page, going back`);
+                            await this.page.goBack();
+                            await this.page.waitForTimeout(1000);
                         } else {
                             console.log(`  -> No navigation occurred, keeping placeholder`);
                         }
+                    } else if (clickResult === 'no_safe_element') {
+                        console.log(`  -> No safe element found, keeping placeholder to avoid opening profiles`);
                     }
                     
                 } catch (error) {
