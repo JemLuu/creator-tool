@@ -8,6 +8,9 @@ yarn.lock
 .env.local
 .env.*.local
 .last-run
+.tiktok-last-run
+dwag-tt/.tiktok-auth.json
+dwag-tt/.tiktok-last-run
 
 # Logs
 logs/

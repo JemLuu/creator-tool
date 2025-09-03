@@ -8,7 +8,11 @@
     "dev": "node index.js --debug",
     "debug": "node index.js --debug",
     "instagram": "node dwag-insta/simple-dm-reader.js",
-    "instagram:dev": "node dwag-insta/simple-dm-reader.js --debug"
+    "instagram:dev": "node dwag-insta/simple-dm-reader.js --debug",
+    "tiktok": "node index.js tiktok",
+    "tiktok:dev": "node index.js tiktok --debug",
+    "tt": "node index.js tiktok",
+    "tt:dev": "node index.js tiktok --debug"
   },
   "keywords": [
     "instagram",
@@ -18,6 +22,7 @@
   "license": "MIT",
   "dependencies": {
     "dotenv": "^17.2.1",
-    "instagram-private-api": "^1.46.1"
+    "instagram-private-api": "^1.46.1",
+    "playwright": "^1.55.0"
   }
 }
