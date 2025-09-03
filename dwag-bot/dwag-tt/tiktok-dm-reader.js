@@ -45,7 +45,7 @@ function findPreviousMedia(messages, commandIndex) {
 /**
  * Process messages for Discord - filters for dwag commands and pairs with media
  */
-function processMessagesForDiscord(messagesByConversation) {
+function processMessagesForDiscord(messagesByConversation, scraper) {
     const discordMessages = [];
     
     for (const [threadTitle, messages] of Object.entries(messagesByConversation)) {
@@ -60,12 +60,20 @@ function processMessagesForDiscord(messagesByConversation) {
                 if (media) {
                     // Only send if we have a real video URL, not a placeholder
                     if (!media.content.includes('/placeholder')) {
+                        // Check if we've already sent this video-idea pair
+                        if (scraper.isDuplicatePair(media.content, command.ideaText)) {
+                            console.log(`Skipping duplicate pair from ${threadTitle}: "${command.ideaText}"`);
+                            return;
+                        }
+                        
                         // Create the Discord message with media and idea text
                         discordMessages.push({
                             sender: threadTitle,
                             content: `${media.content}\n"${command.ideaText}"`,
                             timestamp: msg.timestamp,
-                            webhookUrl: WEBHOOK_URLS[command.type]
+                            webhookUrl: WEBHOOK_URLS[command.type],
+                            videoUrl: media.content,
+                            ideaText: command.ideaText
                         });
                     } else {
                         console.log(`Skipping placeholder video for command from ${threadTitle}: "${msg.content}"`);
@@ -107,13 +115,18 @@ async function checkMessages(auth, scraper) {
         console.log(`Total new messages: ${totalNewMessages}`);
         
         // Process and send to Discord
-        const discordMessages = processMessagesForDiscord(messagesByConversation);
+        const discordMessages = processMessagesForDiscord(messagesByConversation, scraper);
         if (discordMessages.length > 0) {
             console.log(`Sending ${discordMessages.length} message(s) to Discord...`);
             await sendToDiscord(discordMessages, WEBHOOK_URLS);
             console.log('Messages sent to Discord!');
+            
+            // Mark all sent pairs as sent to avoid duplicates in future runs
+            discordMessages.forEach(msg => {
+                scraper.markPairAsSent(msg.videoUrl, msg.ideaText);
+            });
         } else {
-            console.log('No dwag commands found to send to Discord');
+            console.log('No new dwag commands found to send to Discord');
         }
     }
     

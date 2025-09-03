@@ -1,7 +1,7 @@
 {
   "name": "dawg-bot",
   "version": "1.0.0",
-  "description": "Simple Instagram DM reader",
+  "description": "Instagram and TikTok DM reader bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

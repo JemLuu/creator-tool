@@ -6,11 +6,23 @@
 function parseCommand(text) {
     if (!text || typeof text !== 'string') return null;
     
-    const lowerText = text.toLowerCase().trim();
+    const trimmedText = text.trim();
+    const lowerText = trimmedText.toLowerCase();
+    
+    // New format: Check if message starts with trigger words (meme, skit, audio)
+    const shortMatch = trimmedText.match(/^(meme|skit|audio)\s+(.+)$/i);
+    if (shortMatch) {
+        return {
+            command: 'add',
+            type: shortMatch[1].toLowerCase(),
+            ideaText: shortMatch[2].trim()
+        };
+    }
+    
+    // Original format: "dwag add [type] [idea text]" 
     if (!lowerText.startsWith('dwag')) return null;
     
-    // Parse "dwag add [type] [idea text]"
-    const addMatch = text.match(/^dwag\s+add\s+(?:(meme|skit|audio)\s+)?(.+)$/i);
+    const addMatch = trimmedText.match(/^dwag\s+add\s+(?:(meme|skit|audio)\s+)?(.+)$/i);
     if (addMatch) {
         return {
             command: 'add',
