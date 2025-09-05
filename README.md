@@ -14,6 +14,6 @@
 ## Manual Testing
 ```bash
 cd dwag-bot
-npm start        # Run once
-npm run debug    # Monitor every second
+npm start
+npm run debug
 ```
