@@ -54,48 +54,261 @@ class FinalScraper {
         console.log('Navigating to TikTok messages...');
         await this.page.goto('https://www.tiktok.com/messages', { waitUntil: 'networkidle' });
         await this.page.waitForTimeout(3000);
+        
+        // Check if we're in the notifications section and need to navigate to actual messages
+        const currentUrl = this.page.url();
+        console.log(`[DEBUG] Current URL: ${currentUrl}`);
+        
+        // Look for a "Messages" tab or button to click
+        try {
+            // Try to find and click on the Messages tab/button
+            const messagesButton = await this.page.$('button:has-text("Messages")');
+            if (messagesButton) {
+                console.log('[DEBUG] Found Messages button, clicking...');
+                await messagesButton.click();
+                await this.page.waitForTimeout(2000);
+            } else {
+                // Try alternative selectors for messages navigation
+                const messageSelectors = [
+                    'a[href*="/messages"]',
+                    'button[data-e2e="messages-tab"]',
+                    '[data-testid="messages-tab"]',
+                    'button:has-text("Messages")',
+                    'a:has-text("Messages")'
+                ];
+                
+                for (const selector of messageSelectors) {
+                    try {
+                        const element = await this.page.$(selector);
+                        if (element) {
+                            console.log(`[DEBUG] Found messages element with selector: ${selector}`);
+                            await element.click();
+                            await this.page.waitForTimeout(2000);
+                            break;
+                        }
+                    } catch (e) {
+                        // Continue to next selector
+                    }
+                }
+            }
+        } catch (error) {
+            console.log('[DEBUG] Could not find Messages navigation button:', error.message);
+        }
+        
+        // Wait a bit more for the page to settle
+        await this.page.waitForTimeout(2000);
+        
+        // Log final URL to confirm we're in the right place
+        const finalUrl = this.page.url();
+        console.log(`[DEBUG] Final URL after navigation: ${finalUrl}`);
     }
 
     async getConversationList() {
         console.log('Getting conversation list...');
         
-        const conversations = await this.page.evaluate(() => {
-            // Find the specific conversation wrapper elements
-            const wrappers = document.querySelectorAll('.css-1rrx3i5-DivItemWrapper');
-            console.log(`[DEBUG] Found ${wrappers.length} conversation wrappers`);
+        // First, let's debug what's actually on the page
+        const debugInfo = await this.page.evaluate(() => {
+            const debug = {
+                url: window.location.href,
+                title: document.title,
+                allDivs: document.querySelectorAll('div').length,
+                allSpans: document.querySelectorAll('span').length,
+                allLinks: document.querySelectorAll('a').length,
+                possibleSelectors: []
+            };
             
-            const convList = [];
-            wrappers.forEach((wrapper, index) => {
-                const text = wrapper.textContent || '';
-                
-                // Extract username by finding the first line that looks like a name
-                let username = 'Unknown';
-                const lines = text.split(/\n|Message request|dwag add|\d{1,2}\/\d{1,2}\/\d{4}/);
-                
-                for (const line of lines) {
-                    const cleanLine = line.trim();
-                    // Look for lines that could be usernames (not empty, not too long, contains letters)
-                    if (cleanLine && cleanLine.length > 1 && cleanLine.length < 50 && 
-                        /[a-zA-Z]/.test(cleanLine) && !cleanLine.includes(':')) {
-                        username = cleanLine;
-                        break;
-                    }
+            // Look for common conversation-related selectors
+            const commonSelectors = [
+                '[data-e2e="message-item"]',
+                '[data-testid*="message"]',
+                '[class*="message"]',
+                '[class*="conversation"]',
+                '[class*="chat"]',
+                '[class*="item"]',
+                'div[role="button"]',
+                'div[tabindex]'
+            ];
+            
+            commonSelectors.forEach(selector => {
+                const elements = document.querySelectorAll(selector);
+                if (elements.length > 0) {
+                    debug.possibleSelectors.push({
+                        selector,
+                        count: elements.length,
+                        sampleText: Array.from(elements).slice(0, 3).map(el => el.textContent?.substring(0, 50))
+                    });
                 }
-                
-                // Get preview text
-                const preview = text.substring(0, 100);
-                
-                convList.push({
-                    index,
-                    username,
-                    preview,
-                    hasMessages: text.includes('dwag') || text.includes('Message request')
-                });
-                
-                console.log(`[DEBUG] Conversation ${index}: ${username} - "${preview}"`);
             });
             
-            return convList;
+            // Look for elements that might contain usernames
+            const allElements = document.querySelectorAll('*');
+            const usernameCandidates = [];
+            
+            Array.from(allElements).forEach((el, index) => {
+                const text = el.textContent?.trim();
+                if (text && text.length > 2 && text.length < 30 && 
+                    /^[a-zA-Z0-9._]+$/.test(text) && 
+                    !text.includes('TikTok') && 
+                    !text.includes('Messages') &&
+                    !text.includes('Search')) {
+                    usernameCandidates.push({
+                        text,
+                        tagName: el.tagName,
+                        className: el.className,
+                        index
+                    });
+                }
+            });
+            
+            debug.usernameCandidates = usernameCandidates.slice(0, 20); // Limit to first 20
+            
+            return debug;
+        });
+        
+        console.log('[DEBUG] Page debug info:', JSON.stringify(debugInfo, null, 2));
+        
+        // Now try to find conversations using multiple strategies
+        const conversations = await this.page.evaluate(() => {
+            const convList = [];
+            
+            // Strategy 1: Look for elements that contain usernames and message previews
+            const allDivs = document.querySelectorAll('div');
+            const conversationCandidates = [];
+            
+            Array.from(allDivs).forEach((div, index) => {
+                const text = div.textContent?.trim();
+                if (text && text.length > 10 && text.length < 200) {
+                    // Look for patterns that suggest this is a conversation item
+                    const hasUsername = /^[a-zA-Z0-9._]+$/.test(text.split('\n')[0]?.trim());
+                    const hasMessagePreview = text.includes('meme') || text.includes('Message request') || 
+                                            text.includes('dwag') || text.includes('skit') || 
+                                            text.includes('audio') || /\d{1,2}\/\d{1,2}\/\d{4}/.test(text);
+                    
+                    if (hasUsername && hasMessagePreview) {
+                        conversationCandidates.push({
+                            element: div,
+                            text: text,
+                            index: index
+                        });
+                    }
+                }
+            });
+            
+            console.log(`[DEBUG] Found ${conversationCandidates.length} conversation candidates`);
+            
+            // Strategy 2: If no candidates found, try looking for specific usernames we know exist
+            if (conversationCandidates.length === 0) {
+                console.log('[DEBUG] No candidates found with Strategy 1, trying Strategy 2...');
+                
+                const knownUsernames = ['have.some.pham', 'Jonathan Coulter', 'Bray', 'dwag', 'Jeremy L'];
+                const allElements = document.querySelectorAll('*');
+                
+                Array.from(allElements).forEach((el, index) => {
+                    const text = el.textContent?.trim();
+                    if (text) {
+                        knownUsernames.forEach(username => {
+                            if (text.includes(username)) {
+                                // Make sure this isn't a notification item
+                                const isNotification = text.includes('started following') || 
+                                                     text.includes('liked your') || 
+                                                     text.includes('commented on') ||
+                                                     text.includes('ago') ||
+                                                     text.includes('Follow back');
+                                
+                                if (!isNotification) {
+                                    conversationCandidates.push({
+                                        element: el,
+                                        text: text,
+                                        index: index,
+                                        foundUsername: username
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+                
+                console.log(`[DEBUG] Strategy 2 found ${conversationCandidates.length} candidates`);
+            }
+            
+            // Strategy 3: Look for elements that might be conversation containers
+            if (conversationCandidates.length === 0) {
+                console.log('[DEBUG] No candidates found with Strategy 2, trying Strategy 3...');
+                
+                // Look for elements that might contain conversation lists
+                const possibleContainers = document.querySelectorAll('div[class*="list"], div[class*="conversation"], div[class*="message"], div[class*="chat"]');
+                
+                possibleContainers.forEach((container, index) => {
+                    const text = container.textContent?.trim();
+                    if (text && text.length > 20) {
+                        // Check if this container has multiple usernames (suggesting it's a conversation list)
+                        const usernameMatches = text.match(/[a-zA-Z0-9._]+/g);
+                        if (usernameMatches && usernameMatches.length >= 2) {
+                            conversationCandidates.push({
+                                element: container,
+                                text: text,
+                                index: index,
+                                isContainer: true
+                            });
+                        }
+                    }
+                });
+                
+                console.log(`[DEBUG] Strategy 3 found ${conversationCandidates.length} candidates`);
+            }
+            
+            // Process the candidates and deduplicate
+            const seenUsernames = new Set();
+            const uniqueConversations = [];
+            
+            conversationCandidates.forEach((candidate, index) => {
+                const text = candidate.text;
+                const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+                
+                // Extract username
+                let username = 'Unknown';
+                if (candidate.foundUsername) {
+                    username = candidate.foundUsername;
+                } else if (lines.length > 0 && /^[a-zA-Z0-9._]+$/.test(lines[0])) {
+                    username = lines[0];
+                }
+                
+                // Skip if we've already seen this username
+                if (seenUsernames.has(username)) {
+                    return;
+                }
+                
+                // Only include if it looks like a real conversation (not navigation elements)
+                const isRealConversation = text.includes('meme') || text.includes('Message request') || 
+                                         text.includes('dwag') || text.includes('skit') || 
+                                         text.includes('audio') || /\d{1,2}\/\d{1,2}\/\d{4}/.test(text);
+                
+                // Skip navigation elements and other non-conversation items
+                const isNavigation = text.includes('TikTok') || text.includes('Search') || 
+                                   text.includes('For You') || text.includes('Shop') || 
+                                   text.includes('Explore') || text.includes('Following') ||
+                                   text.includes('Friends') || text.includes('LIVE');
+                
+                if (isRealConversation && !isNavigation && username !== 'Unknown') {
+                    seenUsernames.add(username);
+                    
+                    // Get preview text
+                    const preview = text.substring(0, 100);
+                    
+                    uniqueConversations.push({
+                        index: uniqueConversations.length,
+                        username,
+                        preview,
+                        hasMessages: true,
+                        fullText: text,
+                        element: candidate.element
+                    });
+                    
+                    console.log(`[DEBUG] Unique conversation ${uniqueConversations.length - 1}: ${username} - "${preview}"`);
+                }
+            });
+            
+            return uniqueConversations;
         });
         
         console.log(`Found ${conversations.length} conversations:`);
@@ -109,20 +322,61 @@ class FinalScraper {
     async clickIntoConversation(index) {
         console.log(`Clicking into conversation ${index}...`);
         
-        const clicked = await this.page.evaluate((idx) => {
-            const wrappers = document.querySelectorAll('.css-1rrx3i5-DivItemWrapper');
-            if (wrappers[idx]) {
-                console.log(`[DEBUG] Clicking conversation at index ${idx}`);
-                wrappers[idx].click();
-                return true;
-            }
-            console.log(`[DEBUG] Could not find conversation at index ${idx}`);
+        // Get the conversation list again to find the element to click
+        const conversations = await this.getConversationList();
+        
+        if (index >= conversations.length) {
+            console.log(`[DEBUG] Index ${index} out of range. Found ${conversations.length} conversations.`);
             return false;
-        }, index);
+        }
+        
+        const targetConversation = conversations[index];
+        console.log(`[DEBUG] Trying to click conversation: ${targetConversation.username}`);
+        
+        // Try multiple strategies to click the conversation
+        const clicked = await this.page.evaluate((targetUsername) => {
+            // Strategy 1: Look for elements containing the username
+            const allElements = document.querySelectorAll('*');
+            let foundElement = null;
+            
+            Array.from(allElements).forEach((el) => {
+                const text = el.textContent?.trim();
+                if (text && text.includes(targetUsername)) {
+                    // Make sure it's not a navigation element
+                    const isNavigation = text.includes('TikTok') || text.includes('Search') || 
+                                       text.includes('For You') || text.includes('Shop') || 
+                                       text.includes('Explore') || text.includes('Following') ||
+                                       text.includes('Friends') || text.includes('LIVE');
+                    
+                    if (!isNavigation && (text.includes('meme') || text.includes('Message request') || 
+                                         text.includes('dwag') || text.includes('skit') || 
+                                         text.includes('audio') || /\d{1,2}\/\d{1,2}\/\d{4}/.test(text))) {
+                        foundElement = el;
+                    }
+                }
+            });
+            
+            if (foundElement) {
+                console.log(`[DEBUG] Found element for ${targetUsername}, attempting to click...`);
+                try {
+                    foundElement.click();
+                    return true;
+                } catch (error) {
+                    console.log(`[DEBUG] Click failed: ${error.message}`);
+                    return false;
+                }
+            }
+            
+            console.log(`[DEBUG] Could not find clickable element for ${targetUsername}`);
+            return false;
+        }, targetConversation.username);
         
         if (clicked) {
+            console.log(`[DEBUG] Successfully clicked conversation: ${targetConversation.username}`);
             // Wait for chat to load
             await this.page.waitForTimeout(3000);
+        } else {
+            console.log(`[DEBUG] Failed to click conversation: ${targetConversation.username}`);
         }
         
         return clicked;
