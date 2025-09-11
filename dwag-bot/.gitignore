@@ -11,6 +11,7 @@ yarn.lock
 .tiktok-last-run
 dwag-tt/.tiktok-auth.json
 dwag-tt/.tiktok-last-run
+PersonalNotes.md
 
 # Logs
 logs/
