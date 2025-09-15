@@ -1,11 +1,13 @@
 const { IgApiClient } = require('instagram-private-api');
 const fs = require('fs');
+const path = require('path');
 const { WEBHOOK_URLS, DEBUG_MODE } = require('../utils/config');
 const { parseCommand } = require('../utils/command-parser');
 const { sendToDiscord } = require('../utils/discord-sender');
 
 const ig = new IgApiClient();
-const LAST_RUN_FILE = '.last-run';
+const SENT_PAIRS_FILE = path.join(__dirname, '.instagram-sent-pairs');
+const POPULATE_ONLY = process.argv.includes('--populate-only');
 
 const messageHandlers = {
     clip: (msg) => {
@@ -35,20 +37,30 @@ function formatMessage(msg, threadTitle) {
     return { time, sender, content };
 }
 
-function getLastRunTime() {
+
+function isDuplicatePair(reelUrl, ideaText) {
     try {
-        if (fs.existsSync(LAST_RUN_FILE)) {
-            return parseInt(fs.readFileSync(LAST_RUN_FILE, 'utf8'));
+        if (!fs.existsSync(SENT_PAIRS_FILE)) {
+            return false;
         }
+
+        const pairToCheck = `${reelUrl}|${ideaText}`;
+        const sentPairs = fs.readFileSync(SENT_PAIRS_FILE, 'utf8');
+
+        return sentPairs.includes(pairToCheck);
     } catch (error) {
-        console.error('Error reading last run file:', error);
+        console.error('Error checking duplicate pairs:', error);
+        return false; // If we can't check, assume it's not a duplicate
     }
-    // Default to 24 hours ago if no file
-    return Date.now() - (24 * 60 * 60 * 1000);
 }
 
-function saveLastRunTime() {
-    fs.writeFileSync(LAST_RUN_FILE, Date.now().toString());
+function markPairAsSent(reelUrl, ideaText) {
+    try {
+        const pair = `${reelUrl}|${ideaText}\n`;
+        fs.appendFileSync(SENT_PAIRS_FILE, pair);
+    } catch (error) {
+        console.error('Error saving sent pair:', error);
+    }
 }
 
 // sendToDiscord is now imported from shared module
@@ -58,24 +70,22 @@ function saveLastRunTime() {
  * @returns {Object} Dictionary with thread titles as keys and arrays of messages as values
  */
 async function collectMessagesByConversation() {
-    const lastRunTime = getLastRunTime();
     const messagesByConversation = {};
-    
+
     console.log('Fetching inbox...');
     const inbox = await ig.feed.directInbox().items();
     console.log(`Found ${inbox.length} conversations\n`);
-    
+
     for (const thread of inbox) {
         const threadTitle = thread.thread_title || thread.users[0]?.username || 'Unknown';
         const threadFeed = ig.feed.directThread({ thread_id: thread.thread_id });
         const messages = await threadFeed.items();
-        
-        const newMessages = messages
+
+        // Get ALL messages (not filtered by time), only exclude bot's own messages
+        const allMessages = messages
             .filter(msg => {
-                const msgTime = parseInt(msg.timestamp) / 1000;
-                const isNew = msgTime > lastRunTime;
                 const isNotBot = msg.user_id !== parseInt(process.env.INSTAGRAM_USERID);
-                return isNew && isNotBot;
+                return isNotBot;
             })
             .reverse() // Chronological order
             .map(msg => ({
@@ -84,12 +94,12 @@ async function collectMessagesByConversation() {
                 itemType: msg.item_type,
                 timestamp: new Date(parseInt(msg.timestamp) / 1000).toISOString()
             }));
-        
-        if (newMessages.length > 0) {
-            messagesByConversation[threadTitle] = newMessages;
+
+        if (allMessages.length > 0) {
+            messagesByConversation[threadTitle] = allMessages;
         }
     }
-    
+
     return messagesByConversation;
 }
 
@@ -117,23 +127,31 @@ function findPreviousMedia(messages, commandIndex) {
  */
 function processMessagesForDiscord(messagesByConversation) {
     const discordMessages = [];
-    
+
     for (const [threadTitle, messages] of Object.entries(messagesByConversation)) {
         messages.forEach((msg, index) => {
             // Check if this is a dwag command
             const command = parseCommand(msg.content);
-            
+
             if (command && command.command === 'add') {
                 // Find the previous media to pair with
                 const media = findPreviousMedia(messages, index);
-                
+
                 if (media) {
+                    // Check if we've already sent this reel-idea pair
+                    if (isDuplicatePair(media.content, command.ideaText)) {
+                        console.log(`Skipping duplicate pair from ${threadTitle}: "${command.ideaText}"`);
+                        return;
+                    }
+
                     // Create the Discord message with media and idea text
                     discordMessages.push({
                         sender: threadTitle,
                         content: `${media.content}\n"${command.ideaText}"`,
                         timestamp: msg.timestamp,
-                        webhookUrl: WEBHOOK_URLS[command.type]
+                        webhookUrl: WEBHOOK_URLS[command.type],
+                        reelUrl: media.content,
+                        ideaText: command.ideaText
                     });
                 } else {
                     // No media found to pair with
@@ -142,17 +160,11 @@ function processMessagesForDiscord(messagesByConversation) {
             }
         });
     }
-    
+
     return discordMessages;
 }
 
 async function checkMessages() {
-    const lastRunTime = getLastRunTime();
-    
-    if (!DEBUG_MODE) {
-        console.log(`Checking messages since: ${new Date(lastRunTime).toLocaleString()}\n`);
-    }
-    
     console.log('='.repeat(50));
     
     // Collect messages organized by conversation
@@ -179,23 +191,38 @@ async function checkMessages() {
         // Process and send to Discord
         const discordMessages = processMessagesForDiscord(messagesByConversation);
         if (discordMessages.length > 0) {
-            console.log(`Sending ${discordMessages.length} message(s) to Discord...`);
-            await sendToDiscord(discordMessages, WEBHOOK_URLS);
-            console.log('Messages sent to Discord!');
+            if (POPULATE_ONLY) {
+                console.log(`\n🔄 POPULATE-ONLY MODE: Found ${discordMessages.length} reel+idea pairs`);
+                console.log('Not sending to Discord, only marking as sent...');
+
+                // Mark all pairs as sent without sending to Discord
+                discordMessages.forEach(msg => {
+                    markPairAsSent(msg.reelUrl, msg.ideaText);
+                    console.log(`✅ Marked as sent: ${msg.reelUrl} | "${msg.ideaText}"`);
+                });
+                console.log(`\n✅ Successfully populated ${discordMessages.length} pairs to tracking file!`);
+            } else {
+                console.log(`Sending ${discordMessages.length} message(s) to Discord...`);
+                await sendToDiscord(discordMessages, WEBHOOK_URLS);
+                console.log('Messages sent to Discord!');
+
+                // Mark all sent pairs as sent to avoid duplicates in future runs
+                discordMessages.forEach(msg => {
+                    markPairAsSent(msg.reelUrl, msg.ideaText);
+                });
+            }
         } else {
-            console.log('No dwag commands found to send to Discord');
+            console.log('No new dwag commands found to send to Discord');
         }
     }
     
     console.log('\n' + '='.repeat(50));
-    
+
     if (DEBUG_MODE) {
         console.log(`Next check in 60 seconds...`);
     } else {
         console.log('Done reading DMs!');
     }
-    
-    saveLastRunTime();
 }
 
 async function startDebugMode() {
@@ -216,8 +243,13 @@ async function startDebugMode() {
 
 async function main() {
     try {
+        if (POPULATE_ONLY) {
+            console.log('📋 POPULATE-ONLY MODE ENABLED');
+            console.log('Will scan all reels and mark them as sent without posting to Discord\n');
+        }
+
         ig.state.generateDevice(process.env.INSTAGRAM_USERNAME);
-        
+
         console.log('Logging in...');
         await ig.account.login(process.env.INSTAGRAM_USERNAME, process.env.INSTAGRAM_PASSWORD);
         console.log('Logged in successfully!\n');
