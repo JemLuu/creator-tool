@@ -7,20 +7,20 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/node</string>
-        <string>REPLACE_WITH_FULL_PATH_TO_REPO/dwag-bot/simple-dm-reader.js</string>
+        <string>/Users/jdl/Documents/GitHub/creator-tool/dwag-bot/index.js</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>REPLACE_WITH_FULL_PATH_TO_REPO/dwag-bot</string>
+    <string>/Users/jdl/Documents/GitHub/creator-tool/dwag-bot</string>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
-        <integer>23</integer>
+        <integer>12</integer>
         <key>Minute</key>
-        <integer>30</integer>
+        <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>REPLACE_WITH_FULL_PATH_TO_REPO/dwag-bot/dm-check.log</string>
+    <string>/Users/jdl/Documents/GitHub/creator-tool/dwag-bot/dm-check.log</string>
     <key>StandardErrorPath</key>
-    <string>REPLACE_WITH_FULL_PATH_TO_REPO/dwag-bot/dm-check.log</string>
+    <string>/Users/jdl/Documents/GitHub/creator-tool/dwag-bot/dm-check.log</string>
 </dict>
 </plist>
